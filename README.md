@@ -22,7 +22,7 @@
    watch落在当前宿主机的pod,解析pod的annotation字段，定时更新每个宿主机的inputs.yml文件
 
 ## install
-> - helm upgrade --install log-collection charts/log-collection -n wz-system --set common.idcName=test-bjyt2
+> - helm upgrade --install log-collection charts/log-collection -n wz-system --set common.idcName=test-idc2
 
 ## uninstall
 > - helm uninstall log-collection -n wz-system
