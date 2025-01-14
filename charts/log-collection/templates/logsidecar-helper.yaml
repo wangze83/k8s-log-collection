@@ -1,0 +1,125 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config-template-helper
+data:
+{{ (.Files.Glob "filebeat/filebeat.yml").AsConfig | indent 2 }}
+{{ (.Files.Glob "filebeat/inputs.yml.template").AsConfig | indent 2 }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.logSidecarHelper.name }}
+  labels:
+    app: logsidecar-sidecar-helper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logsidecar-sidecar-helper
+      app.kubernetes.io/name: {{ .Values.logSidecarHelper.name }}
+  template:
+    metadata:
+      labels:
+        app: logsidecar-sidecar-helper
+        app.kubernetes.io/name: {{ .Values.logSidecarHelper.name }}
+      {{- if .Values.logSidecarHelper.podAnnotations }}
+      annotations:
+        {{ toYaml .Values.logSidecarHelper.podAnnotations }}
+      {{- end }}
+    spec:
+      {{- if .Values.logSidecarHelper.rbac.install }}
+      serviceAccountName: {{ .Values.logSidecarHelper.name }}
+      {{- end }}
+      containers:
+        - name: {{ .Values.logSidecarHelper.containerName }}
+          image: {{ .Values.logSidecarHelper.image }}
+          command:
+            {{ .Values.logSidecarHelper.command }}
+          imagePullPolicy: Always
+          env:
+            - name: IDC
+              value: {{ .Values.common.idcName }}
+            - name: NODENAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+          securityContext:
+            {{toJson .Values.logSidecarHelper.securityContext }}
+          resources:
+            {{toJson .Values.logSidecarHelper.resources }}
+          volumeMounts:
+            {{toJson .Values.logSidecarHelper.volumeMounts }}
+      volumes:
+        {{toJson .Values.logSidecarHelper.volumes }}
+
+---
+  {{ if .Values.logSidecarHelper.rbac.install }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.logSidecarHelper.name }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.logSidecarHelper.name }}
+imagePullSecrets:
+  {{ toYaml .Values.logSidecarHelper.rbac.imagePullSecrets | indent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/{{ .Values.logSidecarHelper.rbac.apiVersion }}
+kind: ClusterRole
+metadata:
+  name: {{ .Values.logSidecarHelper.name }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.logSidecarHelper.name }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - pods
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - batch
+    resources:
+      - cronjobs
+      - jobs
+    verbs:
+      - get
+      - list
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/{{ .Values.logSidecarHelper.rbac.apiVersion }}
+metadata:
+  name: {{ .Values.logSidecarHelper.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.logSidecarHelper.name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.logSidecarHelper.name }}
+  {{ end }}

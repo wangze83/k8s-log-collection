@@ -1,0 +1,87 @@
+# Default values for log-collection.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# common config
+common:
+  idcName: test
+  filebeatImage: harbor.wz.net/cloud/filebeat:492c95d7
+  filebeatExporterImage: harbor.wz.net/cloud/beat-exporter:v1.0.0
+  metricsAnno:
+    prometheus.io/port: '8001'
+    prometheus.io/scrape: 'true'
+    prometheus.io/path: /metrics
+# config of log collection by ds mode
+logCollectionByDS:
+  name: log-daemonset
+  logControllerImage: harbor.wz.net/cloud/log-controller:v0.1.0-6169b38
+  pullPolicy: Always
+  containerName: daemonset-controller
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+  rbac:
+    install: true
+    apiVersion: v1
+    imagePullSecrets: []
+  # 这个是docker标准输出的日志目录: /data/docker/containers
+  # containerd的标准输出日志目录: /var/log/containers/
+  # 这个目录会在起filebeat的时候挂载到filebeat的container中
+  dockerStdoutLogPath: /data/docker/containers
+  containerdStdLogPath: /var/log/pods/
+
+
+# config of log collection by sidecar mode
+logCollectionBySidecar:
+  name: log-sidecar
+  image:  harbor.wz.net/cloud/log-sidecar:v0.1.0-6169b38
+  pullPolicy: Always
+  secretName: logsidecar-injector-certs
+  certificateName: logsidecar-injector-cert
+  issuerName: logsidecar-injector-selfsigned-issuer
+  filebeatConfigmapName: logsidecar-injector-configmap
+  rbac:
+    install: true
+    apiVersion: v1
+    imagePullSecrets: []
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+
+# config of helper component
+logSidecarHelper:
+  name: sidecar-helper
+  image: harbor.wz.net/cloud/log-sidecar-helper:v0.1.0-1002ce1
+  pullPolicy: Always
+  containerName: controller
+  podAnnotations: {}
+  securityContext:
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+  rbac:
+    install: true
+    apiVersion: v1
+    imagePullSecrets: []
+  command:
+    - /opt/controller/logsidecar-helper
+  volumes:
+    - name: filebeat-config-template
+      configMap:
+        name: filebeat-config-template-helper
+        items:
+          - key: "inputs.yml.template"
+            path: "inputs.yml.template"
+          - key: "filebeat.yml"
+            path: "filebeat.yml"
+  volumeMounts:
+    - name: filebeat-config-template
+      mountPath: /opt/templates
+
+

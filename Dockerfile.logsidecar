@@ -1,0 +1,17 @@
+FROM golang:1.16 as builder
+WORKDIR /opt/webhook
+COPY go.mod go.mod
+COPY go.sum go.sum
+# cache deps before building and copying source so that we don't need to re-download as much
+# and so that source changes don't invalidate our downloaded layer
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o logsidecar cmd/sidecar/main.go
+
+FROM alpine
+WORKDIR /opt/webhook/
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+RUN apk add --update curl && rm -rf /var/cache/apk/*
+ENV TimeZone=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TimeZone /etc/localtime && echo $TimeZone > /etc/timezone
+COPY --from=builder /opt/webhook/logsidecar logsidecar

@@ -1,0 +1,195 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Values.logCollectionByDS.name }}
+  labels:
+    app: log-controller
+spec:
+  selector:
+    matchLabels:
+      app: log-controller
+  template:
+    metadata:
+      labels:
+        app: log-controller
+      annotations:
+        {{toJson .Values.common.metricsAnno }}
+    spec:
+      {{- if .Values.logCollectionByDS.rbac.install }}
+      serviceAccountName: {{ .Values.logCollectionByDS.name }}
+      {{- end }}
+      containers:
+        - image: {{ .Values.logCollectionByDS.logControllerImage }}
+          imagePullPolicy: {{ .Values.logCollectionByDS.pullPolicy }}
+          name: log-controller
+          resources:
+            {{toJson .Values.logCollectionByDS.resources }}
+          command:
+            - /opt/controller/log-controller
+          env:
+            - name: IDC
+              value: {{ .Values.common.idcName }}
+            - name: NODENAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - mountPath: /etc/filebeat/inputs.d
+              name: filebeat-input
+            - mountPath: /opt/templates
+              name: inputs-template
+            - mountPath: /data/docker/containers
+              name: docker-std-log-volume
+            - mountPath: /data/containerd/containers
+              name: containerd-std-log-volume
+            - mountPath: /data/kubelet/pods
+              name: logvolume
+        - image: {{ .Values.common.filebeatImage }}
+          imagePullPolicy: {{ .Values.logCollectionByDS.pullPolicy }}
+          args:
+            - -c
+            - /etc/filebeat/config/filebeat.yml
+            - --path.config
+            - /etc/filebeat
+          name: filebeat
+          env:
+            - name: IDC
+              value: {{ .Values.common.idcName }}
+            - name: NODENAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - mountPath: /etc/filebeat/inputs.d
+              name: filebeat-input
+            - mountPath: /etc/filebeat/config
+              name: filebeat-config
+            - mountPath: /data/kubelet/pods
+              name: logvolume
+            - mountPath: /data/docker/containers
+              name: docker-std-log-volume
+            - mountPath: /data/containerd/containers
+              name: containerd-std-log-volume
+            - mountPath: /filebeat/data
+              name: filebeat-data
+            - mountPath: /filebeat/logs
+              name: filebeat-logs
+        - image: {{ .Values.common.filebeatExporterImage }}
+          imagePullPolicy: {{ .Values.logCollectionByDS.pullPolicy }}
+          name: filebeat-exporter
+      restartPolicy: Always
+      volumes:
+        - emptyDir: {}
+          name: filebeat-input
+        - hostPath:
+            path: /data/kubernetes/var/lib/kubelet/pods
+          name: logvolume
+        - hostPath:
+            path: {{ .Values.logCollectionByDS.dockerStdoutLogPath }}
+          name: docker-std-log-volume
+        - hostPath:
+            path: {{ .Values.logCollectionByDS.containerdStdLogPath }}
+          name: containerd-std-log-volume
+        - configMap:
+            name: filebeat-config-template
+            items:
+              - key: "filebeat.yml"
+                path: "filebeat.yml"
+          name: filebeat-config
+        - configMap:
+            name: filebeat-config-template
+            items:
+              - key: "inputs.yml.template"
+                path: "inputs.yml.template"
+          name: inputs-template
+        - hostPath:
+            path: /data/filebeat/logs
+          name: filebeat-logs
+        - hostPath:
+            path: /data/filebeat/data
+          name: filebeat-data
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 20
+  revisionHistoryLimit: 10
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config-template
+data:
+{{ (.Files.Glob "filebeat/filebeat.yml").AsConfig | indent 2 }}
+{{ (.Files.Glob "filebeat/inputs.yml.template").AsConfig | indent 2 }}
+
+---
+  {{ if .Values.logCollectionByDS.rbac.install }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.logCollectionByDS.name }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.logCollectionByDS.name }}
+imagePullSecrets:
+  {{ toYaml .Values.logCollectionByDS.rbac.imagePullSecrets | indent 2 }}
+
+---
+apiVersion: rbac.authorization.k8s.io/{{ .Values.logCollectionByDS.rbac.apiVersion }}
+kind: ClusterRole
+metadata:
+  name: {{ .Values.logCollectionByDS.name }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.logCollectionByDS.name }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - pods
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - batch
+    resources:
+      - cronjobs
+      - jobs
+    verbs:
+      - get
+      - list
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/{{ .Values.logCollectionByDS.rbac.apiVersion }}
+metadata:
+  name: {{ .Values.logCollectionByDS.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.logCollectionByDS.name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.logCollectionByDS.name }}
+  {{ end }}

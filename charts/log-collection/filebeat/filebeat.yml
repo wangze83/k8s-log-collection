@@ -1,0 +1,51 @@
+logging.level: info
+filebeat.config.inputs:
+  enabled: true
+  path: ${path.config}/inputs.d/*.yml
+  reload.enabled: true
+  reload.period: 10s
+
+output.kafka-cluster:
+  # initial brokers for reading cluster metadata
+  version: 0.9.0.1
+  hosts: '%{[output.hosts]}'
+  cluster: '%{[output.cluster]}'
+
+  # message topic selection + partitioning
+  topic: '%{[output.topic]}'
+  partition.round_robin:
+    reachable_only: false
+  required_acks: 1
+  compression: gzip
+  max_message_bytes: 1000000
+  codec.adaptor:
+    string: '%{[output.prefix]}%{[message]}'
+    # the time zone of the JSON data is set to China
+    #  codec.json:
+    localtime: true
+
+processors:
+  - add_wz_metadata:
+  - add_fields:
+      target: ''
+      fields:
+        hostname: ${NODENAME}
+  - drop_fields:
+      fields:
+        - input_type
+        - prospector
+        - input
+        - type
+        - ecs
+        - fields
+        - host
+        - agent
+        - fields
+
+filebeat.updater:
+  enabled: false
+
+http.enabled: true
+http.port: 5066
+http.host: localhost
+

@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: std-sidecar-demo
+  labels:
+    app: std-sidecar-demo
+spec:
+  selector:
+    matchLabels:
+      app: std-sidecar-demo
+  template:
+    metadata:
+      labels:
+        app: std-sidecar-demo
+      annotations:
+        logging.io/logsidecar-config: |-
+          {
+              "containerLogConfigs": {
+                  "app-container": {
+                      "datavolume1": {
+                          "log_collector_type": 0,
+                          "log_type": 0,
+                          "topic": "filebeat-test",
+                          "hosts": "10.1.1.1:39092",
+                          "multiline_enable": false
+                      }
+                  }
+              }
+          }
+        logsidecar-inject.logging-enable: enable
+    spec:
+      volumes:
+        - name: datavolume
+          emptyDir: {}
+      containers:
+        # application container
+        - name: app-container
+          image: alpine
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh"]
+          args: ["-c", "while true; do date; sleep 30;done"]
+          volumeMounts:
+            - name: datavolume
+              mountPath: /data

@@ -1,0 +1,165 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logsidecar-injector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logsidecar
+  template:
+    metadata:
+      labels:
+        app: logsidecar
+    spec:
+      serviceAccountName: {{ .Values.logCollectionBySidecar.name }}
+      containers:
+        - args:
+            - /opt/webhook/logsidecar
+            - --lsc-image
+            - "{{ .Values.common.filebeatImage }}"
+          image: {{ .Values.logCollectionBySidecar.image }}
+          imagePullPolicy: {{ .Values.logCollectionBySidecar.pullPolicy }}
+          name: logsidecar
+          env:
+            - name: IDC
+              value: {{ .Values.common.idcName }}
+            - name: NODENAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+          resources:
+            requests:
+              cpu: 1024m
+              memory: 2048Mi
+          volumeMounts:
+            - name: service-certs
+              mountPath: /etc/logsidecar
+      volumes:
+        - name: service-certs
+          secret:
+            secretName: {{ .Values.logCollectionBySidecar.secretName }}
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.logCollectionBySidecar.certificateName }}
+spec:
+  dnsNames:
+    - logsidecar-injector.wz-system.svc
+    - logsidecar-injector.wz-system.svc.cluster.local
+  duration: 87600h0m0s
+  issuerRef:
+    kind: Issuer
+    name: {{ .Values.logCollectionBySidecar.issuerName }}
+  renewBefore: h0m0s
+  secretName: {{ .Values.logCollectionBySidecar.secretName }}
+
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  annotations:
+  name: {{ .Values.logCollectionBySidecar.issuerName }}
+spec:
+  selfSigned: {}
+
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ .Values.logCollectionBySidecar.certificateName }}
+  name: logsidecar-injector
+  labels:
+    app: logsidecar-injector
+webhooks:
+  - name: logsidecar.logging.io
+    clientConfig:
+      service:
+        name: logsidecar-injector
+        namespace: wz-system
+        port: 443
+        path: "/mutate"
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+        scope: '*'
+    namespaceSelector:
+      matchExpressions:
+        - key: logging.system.io/logcollection
+          operator: NotIn
+          values:
+            - disable
+    admissionReviewVersions: ["v1beta1"]
+    sideEffects: None
+    timeoutSeconds: 30
+    reinvocationPolicy: Never
+
+---
+  {{ if .Values.logCollectionBySidecar.rbac.install }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.logCollectionBySidecar.name }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.logCollectionBySidecar.name }}
+imagePullSecrets:
+  {{ toYaml .Values.logCollectionBySidecar.rbac.imagePullSecrets | indent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/{{ .Values.logCollectionBySidecar.rbac.apiVersion }}
+kind: ClusterRole
+metadata:
+  name: {{ .Values.logCollectionBySidecar.name }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.logCollectionBySidecar.name }}
+rules:
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - batch
+    resources:
+      - cronjobs
+      - jobs
+    verbs:
+      - get
+      - list
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/{{ .Values.logCollectionBySidecar.rbac.apiVersion }}
+metadata:
+  name: {{ .Values.logCollectionBySidecar.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.logCollectionBySidecar.name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.logCollectionBySidecar.name }}
+  {{ end }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logsidecar-injector
+spec:
+  ports:
+    - port: 443
+      protocol: TCP
+      targetPort: 8443
+  selector:
+    app: logsidecar

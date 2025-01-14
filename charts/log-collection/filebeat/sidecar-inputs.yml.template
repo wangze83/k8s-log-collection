@@ -1,0 +1,34 @@
+{{- range .}}
+{{$customField := .CustomField}}
+{{- range $cName,$volumeConfig := .ContainerLogConfigs}}
+{{- if $cName}}
+{{- range $vName,$pathConfig := $volumeConfig}}
+{{- if and ($vName) (eq $pathConfig.LogType 1) (eq $pathConfig.LogCollectorType 0)}}
+{{- range $idx,$logRelPath := $pathConfig.Paths}}
+{{- if $logRelPath}}
+- type: log
+  enabled: true
+  symlinks: true
+  paths:
+  - {{"/data/sidecar-log/logpath"}}-{{$cName}}/{{(Base $logRelPath)}}
+  tail_files: true
+  scan_frequency: 10s
+  backoff: 1s
+  max_backoff: 10s
+  fields:
+    app_field: {{$customField}},container={{$cName}}
+  output:
+    hosts: {{$pathConfig.Hosts}}
+    topic: {{$pathConfig.Topic}}
+  {{- if $pathConfig.MultilineEnable}}
+  multiline.pattern: '{{$pathConfig.MultilinePattern.MulPattern}}'
+  multiline.negate: {{$pathConfig.MultilinePattern.MulNegate}}
+  multiline.match: {{$pathConfig.MultilinePattern.MulMatch}}
+  {{end}}
+{{end -}}
+{{end -}}
+{{end -}}
+{{end -}}
+{{end -}}
+{{end -}}
+{{end -}}

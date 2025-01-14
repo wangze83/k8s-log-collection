@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: file-sidecar-demo
+  labels:
+    app: file-sidecar-demo
+spec:
+  selector:
+    matchLabels:
+      app: file-sidecar-demo
+  template:
+    metadata:
+      labels:
+        app: file-sidecar-demo
+      annotations:
+        logging.io/logsidecar-config: |-
+          {
+              "containerLogConfigs": {
+                  "app-container": {
+                      "datavolume1": {
+                          "log_collector_type": 0,
+                          "log_type": 1,
+                          "paths": [
+                              "/data/log/*.log",
+                              "/data/log/1.log",
+                              "/data/log/2.log",
+                              "/data1/log/*.log"
+                          ],
+                          "topic": "filebeat-test",
+                          "hosts": "10.1.1.1:39092",
+                          "multiline_enable": false,
+                          "codec": "format"
+                      },
+                      "datavolume2": {
+                          "log_collector_type": 0,
+                          "log_type": 1,
+                          "paths": [
+                              "/data/log/3.log"
+                          ],
+                          "topic": "filebeat-test",
+                          "hosts": "10.1.1.1:39092",
+                          "multiline_enable": false,
+                          "codec": "format"
+                      }
+                  },
+                  "app-container1": {
+                      "datavolume1": {
+                          "log_collector_type": 0,
+                          "log_type": 1,
+                          "paths": [
+                              "/data/log/*.log",
+                              "/data/log/1.log",
+                              "/data/log/2.log",
+                              "/data1/log/*.log"
+                          ],
+                          "topic": "filebeat-test",
+                          "hosts": "10.1.1.1:39092",
+                          "multiline_enable": false,
+                          "codec": "format"
+                      }
+                  }
+              }
+          }
+        logsidecar-inject.logging-enable: enable
+    spec:
+      volumes:
+        - name: datavolume
+          emptyDir: {}
+      containers:
+        # application container
+        - name: app-container
+          image: alpine
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh"]
+          args: ["-c", "if [ ! -d /data/log ];then mkdir -p /data/log;fi; while true; do date >> /data/log/app-test.log; sleep 30;done"]
+          volumeMounts:
+            - name: datavolume
+              mountPath: /data
